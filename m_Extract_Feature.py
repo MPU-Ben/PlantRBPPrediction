@@ -54,7 +54,7 @@ T.to_csv("files/optimumAllIndependenceTestingDataset.csv",index=False)
 # print("Y_train.shape",y_train.shape)
 
 # 保存未经特征选择测试集
-# save.saveCSV(X_test,y_test,'models')
+# save.saveCSV(X_test,y_test,'Program')
 
 # 保存经过特征选择的训练集
 # train_df = pd.concat([X_train, y_train], axis=1)

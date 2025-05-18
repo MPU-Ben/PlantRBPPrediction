@@ -15,7 +15,7 @@ import models.create_textcnn_model
 import models.create_gru_model
 from tensorflow.keras.callbacks import TensorBoard
 # Assuming you have the dataset in a CSV file
-data = pd.read_csv('../files/optimumAllDataset.csv')
+data = pd.read_csv('../Files/optimumAllDataset.csv')
 
 # Split the dataset into features and labels
 X = data.iloc[:, :-1].values

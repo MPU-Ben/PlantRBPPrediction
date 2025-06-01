@@ -1,6 +1,7 @@
 import joblib
 import numpy as np
 import pandas as pd
+import seaborn as sns
 from matplotlib import pyplot as plt
 from sklearn.metrics import roc_curve, auc, precision_recall_curve, accuracy_score, f1_score, matthews_corrcoef, \
     confusion_matrix, precision_score
@@ -31,6 +32,9 @@ cm = confusion_matrix(true_labels, predictions)
 tn, fp, fn, tp = cm.ravel()
 sn = round(tp / (tp + fn) * 100, 2)
 sp = round(tn / (tn + fp) * 100, 2)
+print("Confusion Matrix:")
+print(cm)
+print(f"TP: {tp}, FP: {fp}, FN: {fn}, TN: {tn}")
 print(f'Evaluate on Independent dataset')
 print(f'Accuracy: {acc:.2f}%')
 print(f'F1 Score: {f1:.2f}%')
@@ -55,19 +59,17 @@ plt.xlabel('False Positive Rate')
 plt.ylabel('True Positive Rate')
 plt.title('Receiver Operating Characteristic')
 plt.legend(loc='lower right')
-plt.savefig('roc_curve2.png', dpi=300)  # 保存 ROC 曲线图
+plt.savefig('Figures/roc_curve2.png', dpi=300)  # 保存 ROC 曲线图
 plt.show()
 
 
-# 绘制 PR 曲线
-precision, recall, _ = precision_recall_curve(true_labels, predictions)  # 取正类的预测概率
-pr_auc = auc(recall, precision)
-
-plt.figure()
-plt.plot(recall, precision, label=f'PR curve (area = {pr_auc:.2f})')
-plt.xlabel('Recall')
-plt.ylabel('Precision')
-plt.title('Precision-Recall Curve')
-plt.legend(loc='lower left')
-plt.savefig('pr_curve2.png', dpi=300)  # 保存 PR 曲线图
+# 可视化混淆矩阵
+plt.figure(figsize=(8, 6))
+sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+            xticklabels=['non-RBPs', 'RBPs'],
+            yticklabels=['non-RBPs', 'RBPs'])
+plt.ylabel('True label')
+plt.xlabel('Predicted label')
+plt.title('Confusion Matrix')
+plt.savefig('Figures/confusion_matrix.png', dpi=300)  # 保存混淆矩阵图
 plt.show()

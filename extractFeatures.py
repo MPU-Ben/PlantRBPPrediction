@@ -19,7 +19,6 @@ args={'onehot':0,'length':0,'zCurve':0,'gcContent':0,'cumulativeSkew':0,'atgcRat
       'CT':1,'DRA':0,'DAC':0,'kmer_freq_o':0,'kmer_freq_t':0,'MaxORFsLen':0,'orf_coverage':0,'count_orfs':0,
        'kGap':0,'kTupe':0}
 X_,Y_= read.fetchXY(file, label)
-print('-------开始提取特征-----------')
 S = getFeatures.gF("PROT",X_,Y_,**args)
 
 X = S[:, :-1]

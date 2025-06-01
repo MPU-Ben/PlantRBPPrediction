@@ -15,7 +15,7 @@ from tensorflow.python.keras.utils.np_utils import to_categorical
 import Program.models.create_textcnn_model
 import matplotlib
 import matplotlib.pyplot as plt
-fold = 0
+fold = 10
 # 设置 matplotlib 后端和字体
 matplotlib.use('TkAgg')
 matplotlib.rc('font', family='Times New Roman')
@@ -37,15 +37,25 @@ def training_model(dataset):
     num_epochs = 50
     num_batch_size = 32
     textcnn_model = Program.models.create_textcnn_model.textcnn_model(feature_dim)
-
+    # print(textcnn_model.summary())
     # 特征缩放
     scaler = MinMaxScaler()  # 创建 MinMaxScaler 实例
     X = scaler.fit_transform(X)  # 进行训练集的缩放
     joblib.dump(scaler, 'scaler.pkl')  # 保存缩放器
     textcnn_aucs, textcnn_accs, textcnn_mccs, textcnn_f1s, textcnn_sns, textcnn_sps = ([] for _ in range(6))
-    all_train_accs, all_val_accs, all_train_losses, all_val_losses = ([] for _ in range(4))
+    # all_train_accs, all_val_accs, all_train_losses, all_val_losses = ([] for _ in range(4))
+    all_train_accs, all_val_accs, all_train_losses, all_val_losses = ([[] for _ in range(5)] for _ in
+                                                                      range(4))  # 每折单独列表
+    # 初始化四个列表，每个列表包含十个空列表用于十折交叉验证
+    # all_train_accs = [[] for _ in range(10)]
+    # all_val_accs = [[] for _ in range(10)]
+    # all_train_losses = [[] for _ in range(10)]
+    # all_val_losses = [[] for _ in range(10)]
+
     total_train_time = []
     total_train_time_0 = 0  # 用于存储总训练时间
+    best_acc = 0
+    best_fold = -1
     # KFold 交叉验证
     kfold = KFold(n_splits=5, shuffle=True, random_state=42)
     mem_before = p.memory_info().rss / (1024 * 1024)  # 计算初始内存使用
@@ -68,17 +78,18 @@ def training_model(dataset):
         history = textcnn_model.fit(reshaped_X_train, y_train_encoded, epochs=num_epochs,
                                     batch_size=num_batch_size, verbose=0,
                                     validation_data=(reshaped_X_test, y_test_encoded),
-                                    callbacks=[early_stopping])
+                                    callbacks=[early_stopping])#
 
         end_time = time.time()
         total_train_time.append(end_time - start_time)
         total_train_time_0 += (end_time - start_time)  # 累加每折训练时间
 
-        # 记录训练和验证的准确率和损失
-        all_train_accs.extend(history.history['accuracy'])
-        all_val_accs.extend(history.history['val_accuracy'])
-        all_train_losses.extend(history.history['loss'])
-        all_val_losses.extend(history.history['val_loss'])
+        # # 记录训练和验证的准确率和损失
+
+        all_train_accs[fold] = history.history['accuracy']
+        all_val_accs[fold] = history.history['val_accuracy']
+        all_train_losses[fold] = history.history['loss']
+        all_val_losses[fold] = history.history['val_loss']
 
         predictions = textcnn_model.predict(X_test)
         predicted_classes = np.argmax(predictions, axis=1)
@@ -103,7 +114,12 @@ def training_model(dataset):
         textcnn_sps.append(sp)
         # 记录结束时的 CPU 使用情况
         cpu_after = p.cpu_percent(interval=None)
-
+        # 保存每折模型权重
+        # textcnn_model.save_weights(f'fold_{fold+1}.weights.h5')
+        if acc > best_acc:
+            best_acc = acc
+            best_fold = fold
+        print(f'Fold {fold + 1} - Accuracy: {acc:.2f}, AUC: {auc_score:.2f}, MCC: {mcc:.2f}, F1 Score: {f1:.2f}, SN: {sn:.2f}, SP: {sp:.2f}, Epochs:{len(history.history['loss'])}')
         # 计算 CPU 使用率（在训练期间的平均值）
         avg_cpu_usage = (cpu_before + cpu_after) / 2
     # 使用所有数据训练模型并保存
@@ -133,6 +149,17 @@ def training_model(dataset):
         'SP': textcnn_sps,
     })
 
+    # 平均 5 折数据
+    def average_metrics(metric_lists, max_epochs):
+        padded_metrics = [
+            metric + [metric[-1]] * (max_epochs - len(metric)) if len(metric) < max_epochs else metric[:max_epochs] for
+            metric in metric_lists]
+        return np.mean(padded_metrics, axis=0)
+
+    avg_train_accs = average_metrics(all_train_accs, num_epochs)
+    avg_val_accs = average_metrics(all_val_accs, num_epochs)
+    avg_train_losses = average_metrics(all_train_losses, num_epochs)
+    avg_val_losses = average_metrics(all_val_losses, num_epochs)
     # 计算平均指标
     mean_metrics = {
         'Accuracy': np.mean(textcnn_accs),
@@ -150,16 +177,16 @@ def training_model(dataset):
     }
 
     return {
-        'train_accs': all_train_accs,
-        'val_accs': all_val_accs,
-        'train_losses': all_train_losses,
-        'val_losses': all_val_losses,
+        'train_accs': avg_train_accs,
+        'val_accs': avg_val_accs,
+        'train_losses': avg_train_losses,
+        'val_losses': avg_val_losses,
         'total_train_time': total_train_time,
         'total_train_time_0': total_train_time_0,
         'mean_metrics': mean_metrics,
         'metrics_df': metrics_df,
         'avg_cpu_usage': avg_cpu_usage,
-        'avg_memory_usage': memory_usage,  # 计算内存使用
+        'avg_memory_usage': memory_usage,
     }
 # 设置全局字体为 Times New Roman
 plt.rcParams['font.family'] = 'Times New Roman'
@@ -172,22 +199,22 @@ def plot_per_overall(all_results):
         plt.subplot(1, 2, 1)
         plt.plot(result['train_accs'], label='Train Accuracy', color='blue')
         plt.plot(result['val_accs'], label='Validation Accuracy', color='orange')
-        plt.title(f'Accuracy Curve',fontsize=14)
+        plt.title(f'Accuracy Curve (D1)',fontsize=14)
         plt.xlabel('Epochs',fontsize=14)
         plt.ylabel('Accuracy',fontsize=14)
-        plt.legend(fontsize=12)
+        plt.legend(fontsize=14)
 
         # 绘制损失曲线
         plt.subplot(1, 2, 2)
         plt.plot(result['train_losses'], label='Train Loss', color='blue')
         plt.plot(result['val_losses'], label='Validation Loss', color='orange')
-        plt.title(f'Loss Curve',fontsize=14)
+        plt.title(f'Loss Curve (D2)',fontsize=14)
         plt.xlabel('Epochs',fontsize=14)
         plt.ylabel('Loss',fontsize=14)
         plt.legend(fontsize=14)
 
         plt.tight_layout()
-        plt.savefig(f'Figures/overall_metrics_dataset_{i + 1}_WITH_ALL.png', dpi=300)  # 保存为不同的文件
+        plt.savefig(f'Figures/overall_metrics_dataset_{i + 1}_SVM_LR_LDA_LIGHTGBM.png', dpi=300)  # 保存为不同的文件
         plt.close()  # 关闭当前图形，避免重叠
 def plot_overall(all_results):
     plt.figure(figsize=(12, 6))
@@ -196,8 +223,8 @@ def plot_overall(all_results):
     for i, result in enumerate(all_results):
         plt.plot(result['train_accs'], label=f'Train Accuracy (benchmark dataset)')
         plt.plot(result['val_accs'], label=f'Validation Accuracy (benchmark dataset)')
-
-    plt.title('Overall Accuracy Curve',fontsize=14)
+    plt.gca().yaxis.set_major_formatter(FormatStrFormatter('%.3f'))
+    plt.title('Overall Accuracy Curve (A)',fontsize=14)
     plt.xlabel('Epochs',fontsize=14)
     plt.ylabel('Accuracy',fontsize=14)
     plt.legend()
@@ -206,14 +233,15 @@ def plot_overall(all_results):
     for i, result in enumerate(all_results):
         plt.plot(result['train_losses'], label=f'Train Loss (benchmark dataset)')
         plt.plot(result['val_losses'], label=f'Validation Loss (benchmark dataset)')
+    plt.gca().yaxis.set_major_formatter(FormatStrFormatter('%.2f'))
 
-    plt.title('Overall Loss Curve',fontsize=14)
+    plt.title('Overall Loss Curve (B)',fontsize=14)
     plt.xlabel('Epochs',fontsize=14)
     plt.ylabel('Loss',fontsize=14)
     plt.legend()
 
     plt.tight_layout()
-    plt.savefig('overall_metrics.png', dpi=300)
+    plt.savefig('Figures/overall_metrics0528.png', dpi=300)
     plt.show()
 
 # 绘制每个数据集的训练时间比对图
@@ -249,10 +277,16 @@ def plot_cor(data):
     feature_columns = [col for col in data.columns if col != 'label']  # 替换 'label' 为您的目标列名
     # 选择与目标列相关性最大的前 20 个特征
     top_corr_features = correlation_matrix.loc[feature_columns, 'label'].nlargest(10).index
+
     # 绘制相关性热图
     plt.figure(figsize=(10, 8))
-    sns.heatmap(correlation_matrix.loc[top_corr_features, top_corr_features], annot=True, fmt=".2f", cmap='coolwarm', square=True)
-    plt.savefig('Top 10 Correlation Heatmap.png',dpi=300)
+    ax = sns.heatmap(correlation_matrix.loc[top_corr_features, top_corr_features], annot=True, fmt=".2f", cmap='coolwarm', square=True)
+    # 替换负号
+    for text in ax.texts:
+        if text.get_text().startswith('-'):
+            text.set_text(text.get_text().replace('-', '− '))
+
+    plt.savefig(f'Figures/Top 10 Correlation Heatmap.png',dpi=300)
     plt.xticks(rotation=45)  # 这里设置倾斜角度
     # plt.yticks(rotation=45)  # 这里设置倾斜角度
     plt.title('Top 10 Correlation Heatmap')
@@ -278,12 +312,18 @@ datasets = [
     # '../Files/AllTrainingDataset_0411_WITH_SVM.csv',
     # '../Files/AllTrainingDataset_0411_WITH_SVM_LR.csv',
     # '../Files/AllTrainingDataset_0411_WITH_SVM_LR_LDA.csv',
-    '../Files/AllTrainingDataset_0411_WITH_ALL.csv'
+    # '../Files/AllTrainingDataset_0411_WITH_ALL.csv'
     # '../Files/AllTrainingDataset_0413_WITHOUT.csv',
     # '../Files/AllTrainingDataset_0413_WITH_SVM.csv',
     # '../Files/AllTrainingDataset_0413_WITH_SVM_LR.csv',
     # '../Files/AllTrainingDataset_0413_WITH_SVM_LR_LDA.csv',
     # '../Files/AllTrainingDataset_0413_WITH_ALL.csv'
+    # '../Files/final/AllTrainingDataset_0518_WITH_ALL.csv'
+    # '../Files/final/AllTrainingDataset_0518_WITH_F1.csv'
+    # '../Files/final/AllTrainingDataset_0518_WITH_SVM.csv'
+    # '../Files/final/AllTrainingDataset_0518_WITH_SVM_LR.csv'
+    # '../Files/final/AllTrainingDataset_0518_WITH_SVM_LR_LDA.csv'
+    '../Files/final/AllTrainingDataset_0518_WITH_SVM_LR_LDA_LIGHTGBM.csv'
 ]
 
 # 初始化结果存储
@@ -302,13 +342,13 @@ for result in all_results:
     print("评价指标均值及标准差:")
     for metric, value in mean_metrics.items():
         print(f"{metric}: {value:.2f}")  # 保留两位小数
-
+plot_overall(all_results)
 # 记录结束时的 CPU 和内存使用情况
 # cpu_after = p.cpu_percent(interval=None)
 # mem_after = p.memory_info().rss / (1024 * 1024)
 # memory_usage = mem_after - mem_before
 #
 # print(f'Memory Usage: {memory_usage:.2f} MB')
-print(f'Average CPU Usage: {results["avg_cpu_usage"]:.2f}%')
-print(f'Average CPU Usage: {results["avg_memory_usage"]:.2f}MB')
+# print(f'Average CPU Usage: {results["avg_cpu_usage"]:.2f}%')
+# print(f'Average CPU Usage: {results["avg_memory_usage"]:.2f}MB')
 plot_per_overall(all_results)
